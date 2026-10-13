@@ -1,0 +1,338 @@
+--=================================================================
+-- AlyaMenu UI – a tiny UI library that mimics the Banana “lib”
+-- API but builds the UI with the Alya‑style helpers you gave.
+--=================================================================
+
+local Players          = game:GetService("Players")
+local TweenService     = game:GetService("TweenService")
+local UserInputService = game:GetService("UserInputService")
+
+local player = Players.LocalPlayer
+
+---------------------------------------------------------------------
+-- CONFIG (keep the placeholder image – you’ll replace it later)
+---------------------------------------------------------------------
+local Config = {
+    Username   = player.Name,
+    Version    = "V2 [WIP]",
+    AlyaImage  = "rbxassetid://125427820580151",   -- <<< PUT YOUR ALYA IMAGE ID HERE
+    ToggleKey  = Enum.KeyCode.RightShift,
+}
+
+---------------------------------------------------------------------
+-- THEME (exactly the colours you posted earlier)
+---------------------------------------------------------------------
+local Theme = {
+    Window  = Color3.fromRGB(7,   7,  9),
+    Panel   = Color3.fromRGB(16, 16, 18),
+    Element = Color3.fromRGB(24, 24, 27),
+    Active  = Color3.fromRGB(30, 30, 34),
+    Text    = Color3.fromRGB(238,238,240),
+    SubText = Color3.fromRGB(135,135,140),
+    Line    = Color3.fromRGB(26, 26, 29),
+    Knob    = Color3.fromRGB(255,255,255),
+    KnobOff = Color3.fromRGB(110,110,115),
+    Font    = Enum.Font.GothamMedium,
+}
+
+---------------------------------------------------------------------
+-- HELPER FUNCTIONS (make, corner, padding, tween)
+---------------------------------------------------------------------
+local function make(class, props, children)
+    local inst = Instance.new(class)
+    local parent = props.Parent
+    for k, v in pairs(props) do
+        if k ~= "Parent" then
+            inst[k] = v
+        end
+    end
+    for _, c in ipairs(children or {}) do
+        c.Parent = inst
+    end
+    inst.Parent = parent
+    return inst
+end
+
+local function corner(r)   return make("UICorner", { CornerRadius = UDim.new(0, r) }) end
+local function padding(t, r, b, l)
+    return make("UIPadding", {
+        PaddingTop    = UDim.new(0, t),
+        PaddingRight  = UDim.new(0, r or t),
+        PaddingBottom = UDim.new(0, b or t),
+        PaddingLeft   = UDim.new(0, l or r or t),
+    })
+end
+local function tween(inst, props, t)
+    TweenService:Create(inst, TweenInfo.new(t or 0.15, Enum.EasingStyle.Quad, Enum.EasingDirection.Out), props):Play()
+end
+
+---------------------------------------------------------------------
+-- UI LIBRARY (exposes the same API Banana expects)
+---------------------------------------------------------------------
+local UI = {}
+
+function UI:CreateWindow(params)
+    -- -----------------------------------------------------------------
+    -- Root GUI
+    -- -----------------------------------------------------------------
+    local gui = make("ScreenGui", {
+        Name               = "AlyaMenu",
+        ResetOnSpawn       = false,
+        IgnoreGuiInset     = true,
+        ZIndexBehavior     = Enum.ZIndexBehavior.Sibling,
+        Parent             = player:WaitForChild("PlayerGui"),
+    })
+
+    local root = make("Frame", {
+        Parent               = gui,
+        AnchorPoint          = Vector2.new(0.5, 0.5),
+        Position             = UDim2.fromScale(0.5, 0.5),
+        Size                 = UDim2.fromOffset(982, 675),
+        BackgroundTransparency = 1,
+    })
+
+    -- -----------------------------------------------------------------
+    -- Sidebar (tab selector)
+    -- -----------------------------------------------------------------
+    local sidebar = make("Frame", {
+        Parent           = root,
+        AnchorPoint      = Vector2.new(0, 0.5),
+        Position         = UDim2.fromScale(0.02, 0.5),
+        Size             = UDim2.fromOffset(220, 540),
+        BackgroundColor3 = Theme.Window,
+        BorderSizePixel  = 0,
+    })
+    corner(6).Parent = sidebar
+    padding(10).Parent = sidebar
+
+    -- -----------------------------------------------------------------
+    -- Content area (where each tab's widgets live)
+    -- -----------------------------------------------------------------
+    local contentArea = make("Frame", {
+        Parent           = root,
+        AnchorPoint      = Vector2.new(0.5, 0.5),
+        Position         = UDim2.fromScale(0.65, 0.5),
+        Size             = UDim2.fromOffset(720, 560),
+        BackgroundColor3 = Theme.Panel,
+        BorderSizePixel  = 0,
+    })
+    corner(6).Parent = contentArea
+    padding(12).Parent = contentArea
+
+    local window = {}
+    window._gui      = gui
+    window._sidebar  = sidebar
+    window._content  = contentArea
+    window._tabs     = {}
+    window._activeTab = nil
+
+    -----------------------------------------------------------------
+    -- Add a new tab (returns an object that has AddToggle, AddDropdown, …)
+    -----------------------------------------------------------------
+    function window:AddTab(name)
+        -- Tab button on the left sidebar
+        local tabBtn = make("TextButton", {
+            Parent               = sidebar,
+            Size                 = UDim2.fromScale(1, 0.07),
+            BackgroundTransparency = 0.8,
+            BackgroundColor3     = Theme.Element,
+            Text                 = "  "..name,
+            TextColor3           = Theme.Text,
+            Font                 = Theme.Font,
+            TextSize             = 20,
+            AutoButtonColor      = false,
+        })
+        corner(4).Parent = tabBtn
+
+        -- Scrolling frame that holds the tab's UI widgets
+        local tabFrame = make("ScrollingFrame", {
+            Parent           = contentArea,
+            Size             = UDim2.fromScale(1, 1),
+            BackgroundTransparency = 1,
+            CanvasSize       = UDim2.new(0,0,0,0),
+            ScrollBarThickness = 6,
+        })
+        padding(6).Parent = tabFrame
+
+        local tab = {}
+        tab._button = tabBtn
+        tab._frame  = tabFrame
+
+        -----------------------------------------------------------------
+        -- UI element creators (these match Banana's API)
+        -----------------------------------------------------------------
+        function tab:AddToggle(label, callback)
+            local toggle = make("TextButton", {
+                Parent           = tabFrame,
+                Size             = UDim2.fromScale(1, 0.07),
+                BackgroundColor3 = Theme.Active,
+                Text             = label,
+                TextColor3       = Theme.Text,
+                Font             = Theme.Font,
+                TextSize         = 18,
+                AutoButtonColor  = false,
+            })
+            corner(4).Parent = toggle
+            local state = false
+            toggle.MouseButton1Click:Connect(function()
+                state = not state
+                toggle.BackgroundColor3 = state and Theme.Knob or Theme.Active
+                if callback then callback(state) end
+            end)
+        end
+
+        function tab:AddDropdown(label, options, callback)
+            local container = make("Frame", {
+                Parent           = tabFrame,
+                Size             = UDim2.fromScale(1, 0.09),
+                BackgroundColor3 = Theme.Element,
+            })
+            corner(4).Parent = container
+
+            local title = make("TextLabel", {
+                Parent           = container,
+                Size             = UDim2.fromScale(1, 0.4),
+                BackgroundTransparency = 1,
+                Text             = label,
+                TextColor3       = Theme.SubText,
+                Font             = Theme.Font,
+                TextSize         = 16,
+            })
+
+            local list = make("Frame", {
+                Parent           = container,
+                Size             = UDim2.fromScale(1, 0.6),
+                Position         = UDim2.fromScale(0, 0.4),
+                BackgroundTransparency = 1,
+            })
+
+            for i, opt in ipairs(options) do
+                local btn = make("TextButton", {
+                    Parent           = list,
+                    Size             = UDim2.fromScale(1, 1/#options),
+                    Position         = UDim2.fromScale(0, (i-1)/#options),
+                    BackgroundTransparency = 0.9,
+                    Text             = opt,
+                    TextColor3       = Theme.Text,
+                    Font             = Theme.Font,
+                    TextSize         = 16,
+                    AutoButtonColor  = false,
+                })
+                corner(4).Parent = btn
+                btn.MouseButton1Click:Connect(function()
+                    if callback then callback(opt) end
+                end)
+            end
+        end
+
+        function tab:AddSlider(label, min, max, default, callback)
+            local slider = make("Frame", {
+                Parent           = tabFrame,
+                Size             = UDim2.fromScale(1, 0.07),
+                BackgroundColor3 = Theme.Element,
+            })
+            corner(4).Parent = slider
+
+            local title = make("TextLabel", {
+                Parent           = slider,
+                Size             = UDim2.fromScale(0.3, 1),
+                BackgroundTransparency = 1,
+                Text             = label,
+                TextColor3       = Theme.SubText,
+                Font             = Theme.Font,
+                TextSize         = 16,
+            })
+
+            local bar = make("Frame", {
+                Parent           = slider,
+                Size             = UDim2.fromScale(0.6, 0.4),
+                Position         = UDim2.fromScale(0.35, 0.3),
+                BackgroundColor3 = Theme.Line,
+            })
+            corner(3).Parent = bar
+
+            local handle = make("Frame", {
+                Parent           = bar,
+                Size             = UDim2.fromScale(0.05, 1.5),
+                BackgroundColor3 = Theme.Knob,
+            })
+            corner(2).Parent = handle
+
+            local value = default or min
+            local function updatePos()
+                handle.Position = UDim2.fromScale((value - min) / (max - min), 0)
+            end
+            updatePos()
+
+            bar.MouseButton1Down:Connect(function()
+                local conn
+                conn = UserInputService.InputChanged:Connect(function(input)
+                    if input.UserInputType == Enum.UserInputType.MouseMovement then
+                        local mousePos = UserInputService:GetMouseLocation()
+                        local rel = (mousePos.X - bar.AbsolutePosition.X) / bar.AbsoluteSize.X
+                        value = math.clamp(min + rel * (max - min), min, max)
+                        if callback then callback(value) end
+                        updatePos()
+                    end
+                end)
+                UserInputService.InputEnded:Connect(function(inp)
+                    if inp.UserInputType == Enum.UserInputType.MouseButton1 then
+                        conn:Disconnect()
+                    end
+                end)
+            end)
+        end
+
+        function tab:AddButton(label, callback)
+            local btn = make("TextButton", {
+                Parent           = tabFrame,
+                Size             = UDim2.fromScale(1, 0.07),
+                BackgroundColor3 = Theme.Active,
+                Text             = label,
+                TextColor3       = Theme.Text,
+                Font             = Theme.Font,
+                TextSize         = 18,
+                AutoButtonColor  = false,
+            })
+            corner(4).Parent = btn
+            btn.MouseButton1Click:Connect(function()
+                if callback then callback() end
+            end)
+        end
+
+        -----------------------------------------------------------------
+        -- Store the tab and wire up switching behaviour
+        -----------------------------------------------------------------
+        self._tabs[name] = tab
+
+        tabBtn.MouseButton1Click:Connect(function()
+            if self._activeTab then self._activeTab._frame.Visible = false end
+            self._activeTab = tab
+            self._activeTab._frame.Visible = true
+        end)
+
+        -- Hide all tabs at start – the first one clicked becomes visible
+        tab._frame.Visible = false
+
+        return tab
+    end
+
+    -----------------------------------------------------------------
+    -- UI toggling (RightShift by default)
+    -----------------------------------------------------------------
+    function window:ToggleUI()
+        gui.Enabled = not gui.Enabled
+    end
+
+    UserInputService.InputBegan:Connect(function(input, gp)
+        if gp then return end
+        if input.KeyCode == Config.ToggleKey then
+            gui.Enabled = not gui.Enabled
+        end
+    end)
+
+    gui.Enabled = false          -- start hidden
+    return window
+end
+
+return UI
